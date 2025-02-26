@@ -11,6 +11,7 @@ use crate::{
 use self::middleware::{compress as compress_middleware, logger as logger_middleware};
 use actix_cors::Cors;
 use anyhow::Context;
+use cold_chain::cold_chain_emd_task;
 use graphql_core::loader::{get_loaders, LoaderRegistry};
 
 use graphql::{
@@ -320,6 +321,7 @@ pub async fn start_server(
     );
 
     let closure_settings = settings.clone();
+    let closure_service_provider = service_provider.clone();
     let mut http_server = HttpServer::new(move || {
         App::new()
             .app_data(Data::new(closure_settings.clone()))
@@ -329,7 +331,7 @@ pub async fn start_server(
             // needed for static files service
             .app_data(Data::new(closure_settings.clone()))
             // needed for cold chain service
-            .app_data(service_provider.clone())
+            .app_data(closure_service_provider.clone())
             .app_data(auth.clone())
             .app_data(validated_plugins.clone())
             .configure(attach_graphql_schema(graphql_schema.clone()))
@@ -371,7 +373,7 @@ pub async fn start_server(
         _ = file_sync_task => unreachable!("File sync unexpectedly stopped"),
         result = processors_task => unreachable!("Processor terminated ({:?})", result),
         scheduled_error = scheduled_task_handle => unreachable!("Scheduled task stopped unexpectedly: {:?}", scheduled_error),
-
+        _ = cold_chain_emd_task(service_provider.clone()) => unreachable!("Cold chain EMD task stopped unexpectedly"),
     };
 
     server_handle.stop(true).await;

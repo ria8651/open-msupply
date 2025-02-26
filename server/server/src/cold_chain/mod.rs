@@ -2,6 +2,7 @@ use actix_web::{
     web::{self},
     HttpRequest, Result,
 };
+pub use emd::cold_chain_emd_task;
 use service::{
     auth::{validate_auth, AuthDeniedKind, AuthError, Resource, ResourceAccessRequest},
     auth_data::AuthData,
@@ -9,6 +10,7 @@ use service::{
     user_account::UserAccountService,
 };
 
+mod emd;
 mod login;
 mod sensor;
 mod temperature_breach;
