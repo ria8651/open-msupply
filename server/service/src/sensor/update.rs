@@ -7,6 +7,7 @@ use crate::{
     SingleRecordError,
 };
 
+use chrono::NaiveDateTime;
 use repository::{
     ActivityLogType, EqualFilter, RepositoryError, Sensor, SensorRow, SensorRowRepository,
     StorageConnection, TemperatureBreachRow, TemperatureLogRepository, TemperatureLogRowRepository,
@@ -29,6 +30,7 @@ pub struct UpdateSensor {
     pub location_id: Option<NullableUpdate<String>>,
     pub log_interval: Option<i32>,
     pub battery_level: Option<i32>,
+    pub last_connection_datetime: Option<NaiveDateTime>,
 }
 
 pub fn update_sensor(
@@ -83,6 +85,7 @@ pub fn generate(
         location_id,
         log_interval,
         battery_level,
+        last_connection_datetime,
     }: UpdateSensor,
     mut sensor_row: SensorRow,
 ) -> SensorRow {
@@ -96,6 +99,7 @@ pub fn generate(
     sensor_row.is_active = is_active.unwrap_or(sensor_row.is_active);
     sensor_row.log_interval = log_interval.or(sensor_row.log_interval);
     sensor_row.battery_level = battery_level.or(sensor_row.battery_level);
+    sensor_row.last_connection_datetime = last_connection_datetime.or(sensor_row.last_connection_datetime);
     sensor_row
 }
 

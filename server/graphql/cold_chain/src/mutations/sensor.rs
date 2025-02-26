@@ -71,6 +71,7 @@ impl From<UpdateSensorInput> for UpdateSensor {
             is_active,
             log_interval: None,
             battery_level: None,
+            last_connection_datetime: None,
         }
     }
 }

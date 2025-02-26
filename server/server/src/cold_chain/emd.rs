@@ -1,16 +1,18 @@
 use actix_web::web::Data;
 use anyhow::{bail, Context, Result};
-use chrono::Local;
+use chrono::NaiveDateTime;
 use log::{info, warn};
 use regex::Regex;
 use repository::{TemperatureLogRow, TemperatureLogRowRepository};
 use reqwest::{Client, Url};
 use serde::{de::DeserializeOwned, Deserialize};
-use service::service_provider::ServiceProvider;
+use service::{sensor::update::UpdateSensor, service_provider::ServiceProvider};
 use std::time::Duration;
-use util::uuid::uuid;
+use util::{constants::SYSTEM_USER_ID, uuid::uuid};
 
 const EMD_URL: &str = "http://192.168.1.248/json";
+const SENSOR_ID: &str = "01953606-b1aa-7812-aca9-da61fb5a2e68";
+const STORE_ID: &str = "8D967C2618BE4D78B3A6FAD6C1C8FF25";
 
 #[derive(Debug, Deserialize)]
 struct FileListing {
@@ -43,27 +45,42 @@ pub async fn cold_chain_emd_task(service_provider: Data<ServiceProvider>) {
 async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()> {
     let client = Client::new();
 
+    // check when last data was imported
+    let ctx = service_provider.context(STORE_ID.to_string(), SYSTEM_USER_ID.to_string())?;
+    let sensor = service_provider
+        .sensor_service
+        .get_sensor(&ctx, SENSOR_ID.to_string())
+        .anyhow()?;
+    let last_download = sensor.sensor_row.last_connection_datetime;
+    let should_use = |time: NaiveDateTime| last_download.is_some_and(|t| time > t);
+
     // find current data file
-    let mut logger_current_relative_time = None;
+    let mut logger_start_time = None;
     let root_listing = get_endpoint::<FileListing>(&client, "")
         .await
         .context("Cannot get root listing")?;
     let mut data_files = vec![];
     for FileEntry { name, .. } in root_listing.entries {
-        let Ok((_, file_name, relative_time)) = parse_logger_file_name(&name) else {
+        let Ok((_, file_name, relative_time, absolute_time)) = parse_logger_file_name(&name) else {
             continue;
         };
 
         if file_name == "CURRENT_DATA" {
-            logger_current_relative_time = Some(relative_time);
+            if !should_use(absolute_time) {
+                info!("Skipping download as there is no new data");
+                return Ok(());
+            }
+
+            logger_start_time = Some((absolute_time, relative_time));
             data_files.push(name);
 
             break;
         }
     }
-    let Some(logger_current_relative_time) = logger_current_relative_time else {
+    let Some((absolute_time, relative_time)) = logger_start_time else {
         bail!("No current data file found");
     };
+    let logger_start_time = absolute_time - relative_time;
 
     // find history files
     let history_listing = get_endpoint::<FileListing>(&client, "DATA_HISTORY")
@@ -74,15 +91,15 @@ async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()>
             continue;
         }
 
-        let (_, file_name, _) = parse_logger_file_name(&name)?;
-        if file_name == "DATA" {
+        // only import files that are newer than the last download
+        let (_, file_name, relative_time, _) = parse_logger_file_name(&name)?;
+        if file_name == "DATA" && should_use(logger_start_time + relative_time) {
             data_files.push(format!("DATA_HISTORY/{}", name));
         }
     }
 
     // add records to database
     let connection = service_provider.connection()?;
-    let logger_absolute_time = Local::now().naive_utc() - logger_current_relative_time;
     for path in data_files {
         info!("Requesting data file {}...", path);
         let data_file = get_endpoint::<DataObject>(&client, &path)
@@ -90,11 +107,15 @@ async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()>
             .context("Cannot get data file")?;
 
         info!("Processing data file {}...", path);
-        let count = data_file.records.len();
+        let mut count = 0;
         for record in data_file.records {
             if let Some(temperature) = record.vacine_temperature {
                 let relative = convert_duration(&record.relative_time)?;
-                let timestamp = logger_absolute_time + relative;
+                let timestamp = logger_start_time + relative;
+
+                if !should_use(timestamp) {
+                    continue;
+                }
 
                 let new_temperature_log = TemperatureLogRow {
                     id: uuid(),
@@ -107,10 +128,28 @@ async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()>
                 };
 
                 TemperatureLogRowRepository::new(&connection).upsert_one(&new_temperature_log)?;
+                count += 1;
             }
         }
         info!("Imported {} records from {}", count, path);
     }
+
+    // update last download time
+    service_provider
+        .sensor_service
+        .update_sensor(
+            &ctx,
+            UpdateSensor {
+                id: SENSOR_ID.to_string(),
+                name: None,
+                is_active: None,
+                location_id: None,
+                log_interval: None,
+                battery_level: None,
+                last_connection_datetime: Some(absolute_time),
+            },
+        )
+        .anyhow()?;
 
     Ok(())
 }
@@ -129,14 +168,23 @@ async fn get_endpoint<T: DeserializeOwned>(client: &Client, endpoint: &str) -> R
     }
 }
 
-// logger json file name format: <logger_id>_<file_name>_<relative_time>.json
+// logger json file name format: <logger_id>_<file_name>_<relative_time>_<absolute_time>.json
 // <file_name> can contain underscores
 // <relative_time> is an ISO 8601 duration
-fn parse_logger_file_name(name: &str) -> Result<(String, String, Duration)> {
-    let (logger_id, rest_of_file_name) = name
+fn parse_logger_file_name(name: &str) -> Result<(String, String, Duration, NaiveDateTime)> {
+    let (logger_id, mut rest_of_file_name) = name
         .trim_end_matches(".json")
         .split_once("_")
         .context("Invalid logger file name")?;
+
+    let absolute_time = rest_of_file_name
+        .split("_")
+        .last()
+        .context("Invalid logger file name")?;
+
+    rest_of_file_name = rest_of_file_name
+        .trim_end_matches(absolute_time)
+        .trim_end_matches("_");
 
     let relative_time = rest_of_file_name
         .split("_")
@@ -151,7 +199,13 @@ fn parse_logger_file_name(name: &str) -> Result<(String, String, Duration)> {
         logger_id.to_string(),
         file_name.to_string(),
         convert_duration(relative_time)?,
+        convert_absolute(absolute_time)?,
     ))
+}
+
+// ISO 8601 date time parser
+fn convert_absolute(absolute_time: &str) -> Result<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(absolute_time, "%Y%m%dT%H%M%SZ").context("Invalid absolute time")
 }
 
 // ISO 8601 duration parser
@@ -213,4 +267,14 @@ pub enum Alarm {
     Power,
     #[serde(rename = "DCNT")]
     Disconnected,
+}
+
+trait ToAnyhow<A> {
+    fn anyhow(self) -> Result<A>;
+}
+
+impl<A, T: std::fmt::Debug> ToAnyhow<A> for Result<A, T> {
+    fn anyhow(self) -> Result<A> {
+        self.map_err(|e| anyhow::anyhow!("{:?}", e))
+    }
 }

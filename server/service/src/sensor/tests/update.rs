@@ -37,7 +37,8 @@ mod query {
                     name: None,
                     is_active: None,
                     log_interval: None,
-                    battery_level: None
+                    battery_level: None,
+                    last_connection_datetime: None,
                 },
             ),
             Err(UpdateSensorError::SensorDoesNotExist)
@@ -53,7 +54,8 @@ mod query {
                     name: None,
                     is_active: None,
                     log_interval: None,
-                    battery_level: None
+                    battery_level: None,
+                    last_connection_datetime: None,
                 },
             ),
             Err(UpdateSensorError::SensorDoesNotBelongToCurrentStore)
@@ -89,7 +91,8 @@ mod query {
                     name: None,
                     is_active: None,
                     log_interval: None,
-                    battery_level: None
+                    battery_level: None,
+                    last_connection_datetime: None,
                 },
             ),
             Ok(sensor.clone())
@@ -121,7 +124,8 @@ mod query {
                     name: Some(sensor.sensor_row.name.clone()),
                     is_active: Some(sensor.sensor_row.is_active),
                     log_interval: None,
-                    battery_level: None
+                    battery_level: None,
+                    last_connection_datetime: None,
                 },
             ),
             Ok(sensor.clone())
@@ -148,7 +152,8 @@ mod query {
                     name: None,
                     is_active: None,
                     log_interval: None,
-                    battery_level: None
+                    battery_level: None,
+                    last_connection_datetime: None,
                 },
             ),
             Ok(sensor.clone())

@@ -157,6 +157,7 @@ fn upsert_sensor(
                 location_id: None,
                 log_interval: Some(sensor.log_interval),
                 battery_level: Some(sensor.battery_level),
+                last_connection_datetime: None,
             };
             service
                 .update_sensor(ctx, sensor)
