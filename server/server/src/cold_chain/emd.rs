@@ -1,17 +1,20 @@
-use actix_web::web::Data;
+use actix_web::{web::Data, HttpRequest, HttpResponse};
 use anyhow::{bail, Context, Result};
 use chrono::NaiveDateTime;
-use log::{info, warn};
+use log::{error, info, warn};
 use regex::Regex;
-use repository::{TemperatureLogRow, TemperatureLogRowRepository};
+use repository::{SensorType, TemperatureLogRow, TemperatureLogRowRepository};
 use reqwest::{Client, Url};
 use serde::{de::DeserializeOwned, Deserialize};
-use service::{sensor::update::UpdateSensor, service_provider::ServiceProvider};
+use service::{
+    sensor::{insert::InsertSensor, update::UpdateSensor},
+    service_provider::ServiceProvider,
+    SingleRecordError,
+};
 use std::time::Duration;
 use util::{constants::SYSTEM_USER_ID, uuid::uuid};
 
 const EMD_URL: &str = "http://192.168.1.248/json";
-const SENSOR_ID: &str = "01953606-b1aa-7812-aca9-da61fb5a2e68";
 const STORE_ID: &str = "8D967C2618BE4D78B3A6FAD6C1C8FF25";
 
 #[derive(Debug, Deserialize)]
@@ -24,18 +27,32 @@ struct FileEntry {
     name: String,
 }
 
-pub async fn cold_chain_emd_task(service_provider: Data<ServiceProvider>) {
-    loop {
-        if let Err(e) = requeset_current_data(&service_provider).await {
-            warn!("Error requesting current data: {:?}", e);
+pub async fn emd_ready(
+    _request: HttpRequest,
+    _sensor_id: String,
+    service_provider: Data<ServiceProvider>,
+) -> HttpResponse {
+    // no authentication for now
 
-            tokio::time::sleep(core::time::Duration::from_secs(5)).await;
-
-            continue;
-        }
-
-        break;
+    if let Err(e) = requeset_current_data(&service_provider).await {
+        warn!("Error requesting current data: {:?}", e);
     }
+
+    HttpResponse::Ok().finish()
+}
+
+pub async fn cold_chain_emd_task(_service_provider: Data<ServiceProvider>) {
+    // loop {
+    //     if let Err(e) = requeset_current_data(&service_provider).await {
+    //         warn!("Error requesting current data: {:?}", e);
+
+    //         tokio::time::sleep(core::time::Duration::from_secs(5)).await;
+
+    //         continue;
+    //     }
+
+    //     break;
+    // }
 
     loop {
         tokio::time::sleep(core::time::Duration::from_secs(60)).await;
@@ -45,42 +62,68 @@ pub async fn cold_chain_emd_task(service_provider: Data<ServiceProvider>) {
 async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()> {
     let client = Client::new();
 
-    // check when last data was imported
-    let ctx = service_provider.context(STORE_ID.to_string(), SYSTEM_USER_ID.to_string())?;
-    let sensor = service_provider
-        .sensor_service
-        .get_sensor(&ctx, SENSOR_ID.to_string())
-        .anyhow()?;
-    let last_download = sensor.sensor_row.last_connection_datetime;
-    let should_use = |time: NaiveDateTime| last_download.is_some_and(|t| time > t);
-
     // find current data file
     let mut logger_start_time = None;
     let root_listing = get_endpoint::<FileListing>(&client, "")
         .await
         .context("Cannot get root listing")?;
     let mut data_files = vec![];
+    let mut sync_file = None;
     for FileEntry { name, .. } in root_listing.entries {
         let Ok((_, file_name, relative_time, absolute_time)) = parse_logger_file_name(&name) else {
             continue;
         };
 
-        if file_name == "CURRENT_DATA" {
-            if !should_use(absolute_time) {
-                info!("Skipping download as there is no new data");
-                return Ok(());
-            }
-
+        if file_name == "SYNC" {
+            sync_file = Some(name);
             logger_start_time = Some((absolute_time, relative_time));
-            data_files.push(name);
-
-            break;
+        } else if file_name == "CURRENT_DATA" {
+            data_files.push((name, relative_time));
+        } else if file_name == "DATA" {
+            data_files.push((name, relative_time));
         }
     }
     let Some((absolute_time, relative_time)) = logger_start_time else {
         bail!("No current data file found");
     };
     let logger_start_time = absolute_time - relative_time;
+
+    // read sync file
+    let Some(sync_file_path) = sync_file else {
+        bail!("No sync file found");
+    };
+    let sync_file = get_endpoint::<DataObject>(&client, &sync_file_path)
+        .await
+        .context("Cannot get sync file")?;
+    let sensor_id = sync_file
+        .sensor_id()
+        .context("Sync file has no serial number")?;
+
+    // check when last data was imported
+    let ctx = service_provider.context(STORE_ID.to_string(), SYSTEM_USER_ID.to_string())?;
+    let sensor_service = &service_provider.sensor_service;
+    let sensor = match sensor_service.get_sensor(&ctx, sensor_id.clone()) {
+        Ok(sensor) => sensor,
+        Err(SingleRecordError::NotFound(_)) => {
+            info!("Sensor {} not found, creating...", &sensor_id);
+
+            let new_sensor = InsertSensor {
+                id: sensor_id.clone(),
+                serial: sensor_id.clone(),
+                name: sync_file.name(),
+                is_active: Some(true),
+                log_interval: Some(300),
+                battery_level: None,
+                r#type: SensorType::Berlinger, // TODO: add new sensor type
+            };
+            sensor_service.insert_sensor(&ctx, new_sensor).anyhow()?
+        }
+        Err(e) => bail!("Cannot get sensor: {:?}", e),
+    };
+
+    // check if we should import data
+    let last_download = sensor.sensor_row.last_connection_datetime;
+    let should_use = |time: NaiveDateTime| last_download.is_none_or(|t| time > t);
 
     // find history files
     let history_listing = get_endpoint::<FileListing>(&client, "DATA_HISTORY")
@@ -94,13 +137,18 @@ async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()>
         // only import files that are newer than the last download
         let (_, file_name, relative_time, _) = parse_logger_file_name(&name)?;
         if file_name == "DATA" && should_use(logger_start_time + relative_time) {
-            data_files.push(format!("DATA_HISTORY/{}", name));
+            data_files.push((format!("DATA_HISTORY/{}", name), relative_time));
         }
     }
 
     // add records to database
     let connection = service_provider.connection()?;
-    for path in data_files {
+    for (path, file_relative_time) in data_files {
+        if !should_use(logger_start_time + file_relative_time) {
+            info!("Skipping data file {}...", path);
+            continue;
+        }
+
         info!("Requesting data file {}...", path);
         let data_file = get_endpoint::<DataObject>(&client, &path)
             .await
@@ -119,9 +167,9 @@ async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()>
 
                 let new_temperature_log = TemperatureLogRow {
                     id: uuid(),
-                    store_id: "8D967C2618BE4D78B3A6FAD6C1C8FF25".to_string(),
-                    sensor_id: "01953606-b1aa-7812-aca9-da61fb5a2e68".to_string(),
-                    location_id: Some("80acf382-9d98-4f75-a8a6-f8cfc1cf916e".to_string()),
+                    store_id: STORE_ID.to_string(),
+                    sensor_id: sensor_id.clone(),
+                    location_id: None,
                     temperature: temperature as f64,
                     datetime: timestamp,
                     temperature_breach_id: None,
@@ -140,7 +188,7 @@ async fn requeset_current_data(service_provider: &ServiceProvider) -> Result<()>
         .update_sensor(
             &ctx,
             UpdateSensor {
-                id: SENSOR_ID.to_string(),
+                id: sensor_id,
                 name: None,
                 is_active: None,
                 location_id: None,
@@ -240,7 +288,35 @@ fn convert_duration(duration: &str) -> Result<Duration> {
 // based off of the WHO/PQS/E006/DS01 json format
 #[derive(Debug, Deserialize)]
 struct DataObject {
+    #[serde(rename = "AMOD")]
+    appliance_model: Option<String>,
+    #[serde(rename = "ASER")]
+    appliance_serial: Option<String>,
+    #[serde(rename = "LMOD")]
+    logger_model: Option<String>,
+    #[serde(rename = "LSER")]
+    logger_serial: Option<String>,
     records: Vec<DataRecord>,
+}
+
+impl DataObject {
+    fn name(&self) -> Option<String> {
+        match (&self.appliance_model, &self.logger_model) {
+            (Some(appliance), Some(logger)) => Some(format!("{}-{}", appliance, logger)),
+            (Some(appliance), None) => Some(appliance.clone()),
+            (None, Some(logger)) => Some(logger.clone()),
+            (None, None) => None,
+        }
+    }
+
+    fn sensor_id(&self) -> Option<String> {
+        match (&self.appliance_serial, &self.logger_serial) {
+            (Some(appliance), Some(logger)) => Some(format!("{}-{}", appliance, logger)),
+            (Some(appliance), None) => Some(appliance.clone()),
+            (None, Some(logger)) => Some(logger.clone()),
+            (None, None) => None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

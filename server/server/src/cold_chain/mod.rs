@@ -15,6 +15,7 @@ mod login;
 mod sensor;
 mod temperature_breach;
 mod temperature_log;
+use emd::emd_ready;
 use login::post_login;
 use sensor::put_sensors;
 use temperature_breach::put_breaches;
@@ -33,6 +34,10 @@ pub fn config_cold_chain(cfg: &mut web::ServiceConfig) {
     cfg.route(
         &format!("{}/temperature-breach", URL_PATH),
         web::put().to(put_breaches),
+    );
+    cfg.route(
+        &format!("{}/emd-ready", URL_PATH),
+        web::post().to(emd_ready),
     );
 }
 
