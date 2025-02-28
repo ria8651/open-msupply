@@ -319,9 +319,10 @@ pub async fn start_server(
         service_provider.clone().into_inner(),
         settings.mail.clone().map(|m| m.interval).unwrap_or(60),
     );
+    let (cold_chain_handle, cold_chain_sender) =
+        cold_chain::spawn_cold_chain_task(service_provider.clone());
 
     let closure_settings = settings.clone();
-    let closure_service_provider = service_provider.clone();
     let mut http_server = HttpServer::new(move || {
         App::new()
             .app_data(Data::new(closure_settings.clone()))
@@ -331,7 +332,8 @@ pub async fn start_server(
             // needed for static files service
             .app_data(Data::new(closure_settings.clone()))
             // needed for cold chain service
-            .app_data(closure_service_provider.clone())
+            .app_data(Data::new(cold_chain_sender.clone()))
+            .app_data(service_provider.clone())
             .app_data(auth.clone())
             .app_data(validated_plugins.clone())
             .configure(attach_graphql_schema(graphql_schema.clone()))
@@ -373,7 +375,7 @@ pub async fn start_server(
         _ = file_sync_task => unreachable!("File sync unexpectedly stopped"),
         result = processors_task => unreachable!("Processor terminated ({:?})", result),
         scheduled_error = scheduled_task_handle => unreachable!("Scheduled task stopped unexpectedly: {:?}", scheduled_error),
-        _ = cold_chain_emd_task(service_provider.clone()) => unreachable!("Cold chain EMD task stopped unexpectedly"),
+        _ = cold_chain_handle => unreachable!("Cold chain EMD task stopped unexpectedly"),
     };
 
     server_handle.stop(true).await;

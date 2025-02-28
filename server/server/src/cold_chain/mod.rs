@@ -2,7 +2,7 @@ use actix_web::{
     web::{self},
     HttpRequest, Result,
 };
-pub use emd::cold_chain_emd_task;
+pub use emd::spawn_cold_chain_task;
 use service::{
     auth::{validate_auth, AuthDeniedKind, AuthError, Resource, ResourceAccessRequest},
     auth_data::AuthData,
@@ -15,7 +15,7 @@ mod login;
 mod sensor;
 mod temperature_breach;
 mod temperature_log;
-use emd::emd_ready;
+use emd::{emd_ready, emd_upload};
 use login::post_login;
 use sensor::put_sensors;
 use temperature_breach::put_breaches;
@@ -38,6 +38,11 @@ pub fn config_cold_chain(cfg: &mut web::ServiceConfig) {
     cfg.route(
         &format!("{}/emd-ready", URL_PATH),
         web::post().to(emd_ready),
+    );
+    cfg.service(
+        web::resource(&format!("{}/emd-upload/{{path:.*}}", URL_PATH))
+            .route(web::put().to(emd_upload))
+            .app_data(web::PayloadConfig::new(8 * 1024 * 1024)),
     );
 }
 
