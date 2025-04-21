@@ -11,7 +11,6 @@ use crate::{
 use self::middleware::{compress as compress_middleware, logger as logger_middleware};
 use actix_cors::Cors;
 use anyhow::Context;
-use cold_chain::cold_chain_emd_task;
 use graphql_core::loader::{get_loaders, LoaderRegistry};
 
 use graphql::{

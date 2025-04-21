@@ -148,7 +148,27 @@ pub async fn emd_upload(
         }
         None => {
             // create sensor
-            todo!();
+            info!("Sensor {} not found, creating...", &logger_id);
+
+            let new_sensor = InsertSensor {
+                id: logger_id.clone(),
+                serial: logger_id.clone(),
+                name: None,
+                is_active: Some(true),
+                log_interval: Some(300),
+                battery_level: None,
+                r#type: SensorType::Berlinger, // TODO: add new sensor type
+            };
+            let sensor = match sensor_service.insert_sensor(&ctx, new_sensor) {
+                Ok(sensor) => sensor,
+                Err(e) => {
+                    info!("Failed to create sensor: {:?}", e);
+                    return HttpResponse::InternalServerError().finish();
+                }
+            };
+            info!("Sensor {} created", sensor.sensor_row.id);
+
+            sensor
         }
     };
 
