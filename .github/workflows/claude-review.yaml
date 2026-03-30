@@ -6,7 +6,7 @@ on:
 jobs:
   review:
     if: |
-      contains(github.event.comment.body, '@claude-review') &&
+      contains(github.event.comment.body, '@review') &&
       github.event.issue.pull_request != null
     runs-on: ubuntu-latest
     permissions:
@@ -25,19 +25,6 @@ jobs:
           base_branch: develop
           track_progress: true
           prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.issue.number }}
-
-            Please review this pull request with a focus on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Security implications
-            - Performance considerations
-
-            If you can find an associated issue make sure to compare the features implemented by the PR with the associated issue 
-            and note anything missed from the issue or added by the PR that isn't in the issue.
-
-            Note: The PR branch is already checked out in the current working directory.
 
             Collect ALL inline comments first, then submit them in a single review using
             mcp__github__create_pull_request_review with event type "COMMENT".
@@ -47,6 +34,41 @@ jobs:
           claude_args: |
             --allowedTools "mcp__github__create_pull_request_review,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
             --model claude-sonnet-4-6
+
+      - name: Claude Code Review
+        id: claude_review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --allowedTools "mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request,mcp__github__get_pull_request_diff,Bash(gh pr view:*),Bash(gh issue view:*)"
+            --mcp-config '{"mcpServers":{"github":{"command":"docker","args":["run","-i","--rm","-e","GITHUB_PERSONAL_ACCESS_TOKEN","ghcr.io/github/github-mcp-server"],"env":{"GITHUB_PERSONAL_ACCESS_TOKEN":"${{ secrets.GITHUB_TOKEN }}"}}}}' 
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.issue.number }}
+
+            Review this pull request and submit a single unified GitHub review using the MCP tools.
+            Note: The PR branch is already checked out in the current working directory.
+
+            Steps:
+            1. Use `mcp__github__get_pull_request_diff` to read the diff
+            2. Use `mcp__github__create_pending_pull_request_review` to open a pending review
+            3. For each file-specific finding, use `mcp__github__add_pull_request_review_comment_to_pending_review`
+               with the file path, line number, and comment body
+            4. Use `mcp__github__submit_pending_pull_request_review` to submit with:
+               - event: "REQUEST_CHANGES" if any must fix severity findings exist
+               - event: "COMMENT" if only should fix/nit findings
+               - body: a summary of all findings grouped by severity
+
+            Make sure to find any associated issue(s) and compare the features implemented by the PR with the associated issue(s).
+            Make sure there is complete coverage of the issue and note anything added by the PR that isn't in the issue.
+            Note this in the main summary body.
+
+            Severity guide:
+            - 🔴 **Must fix** — bugs, security issues, data loss risks
+            - 🟡 **Should fix** — code quality, consistency, maintainability
+            - 🟢 **Nit** — style, naming, minor suggestions
 
       - name: Upload Claude logs
         if: always()
