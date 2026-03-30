@@ -75,11 +75,21 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
   // enters/exits the table at a single point rather than cycling every row.
   const [focusedRowId, setFocusedRowId] = React.useState<string | null>(null);
 
+  // Use a content-based fingerprint rather than the array reference to avoid
+  // spurious resets when callers pass inline/derived arrays (e.g.
+  // `data={rows.map(fn)}`). Length + first/last item IDs covers the common
+  // cases (pagination, filtering) without false-firing on reference-identity
+  // changes caused by re-renders.
+  const firstItem = data?.[0] as Record<string, unknown> | undefined;
+  const lastItem = data?.[data.length - 1] as Record<string, unknown> | undefined;
+  const dataFingerprint = `${data?.length ?? 0}:${String(firstItem?.id ?? '')}:${String(lastItem?.id ?? '')}`;
+
   // Reset focused row when data changes (e.g. pagination, filtering) so the
   // first row regains tabIndex=0 and the table remains keyboard-reachable.
   React.useEffect(() => {
     setFocusedRowId(null);
-  }, [data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataFingerprint]);
 
   // shared between the table body and head to ensure consistent padding
   const padding = (
@@ -276,15 +286,15 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
               // Roving tabindex: only the focused row (or the first row as
               // entry point) has tabIndex=0; all others are -1 so Tab moves
               // in/out of the table in a single keystroke.
-              tabIndex:
-                focusedRowId === null
-                  ? row.index === 0
-                    ? 0
-                    : -1
-                  : focusedRowId === row.id
-                    ? 0
-                    : -1,
-              onFocus: () => setFocusedRowId(row.id),
+              tabIndex: (focusedRowId !== null ? focusedRowId === row.id : row.index === 0) ? 0 : -1,
+              // Hint to screen readers that this row is interactive.
+              // Consumers can pass a more descriptive aria-label via
+              // muiTableBodyRowProps if they know the row content.
+              role: 'button',
+              // Guard against no-op updates: only update state when the focused
+              // row actually changes to avoid unnecessary full-table re-renders.
+              onFocus: () =>
+                setFocusedRowId(prev => (prev === row.id ? prev : row.id)),
               onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
                 // Only handle keyboard navigation when focus is directly on the
                 // row itself, not on an interactive child element (e.g. inputs)
@@ -293,6 +303,9 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
                   e.preventDefault();
                   // Walk forward to find the next focusable TR sibling,
                   // skipping any non-TR elements (e.g. sub-row detail panels).
+                  // NOTE: this traversal only sees DOM-visible rows; with MRT
+                  // row virtualisation enabled the sibling walk will stop at the
+                  // edge of the rendered window and won't reach unrendered rows.
                   let next = e.currentTarget.nextElementSibling;
                   while (
                     next &&
@@ -312,6 +325,8 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
                   }
                   if (prev instanceof HTMLElement) prev.focus();
                 } else if (e.key === 'Enter' || e.key === ' ') {
+                  // Space is intentional: follows ARIA button/grid conventions
+                  // where Space activates the focused item.
                   e.preventDefault();
                   onRowClick(row.original, false);
                 }
