@@ -6,7 +6,8 @@ on:
 jobs:
   review:
     if: |
-      contains(github.event.comment.body, '@claude-review')
+      contains(github.event.comment.body, '@claude-review') &&
+      github.event.issue.pull_request != null
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,7 +25,7 @@ jobs:
           base_branch: develop
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            PR NUMBER: ${{ github.event.issue.number }}
 
             Please review this pull request with a focus on:
             - Code quality and best practices
