@@ -68,11 +68,18 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
   // This object is merged with the default row props in muiTableBodyRowProps
   // below. We can do the same for other muiTable props if needed in future.
   muiTableBodyRowProps?: MRT_TableOptions<T>['muiTableBodyRowProps'];
+  data?: T[];
 }): Partial<MRT_TableOptions<T>> => {
   const t = useTranslation();
   // Roving tabindex: track which row currently "owns" tabIndex=0 so Tab
   // enters/exits the table at a single point rather than cycling every row.
   const [focusedRowId, setFocusedRowId] = React.useState<string | null>(null);
+
+  // Reset focused row when data changes (e.g. pagination, filtering) so the
+  // first row regains tabIndex=0 and the table remains keyboard-reachable.
+  React.useEffect(() => {
+    setFocusedRowId(null);
+  }, [data]);
 
   // shared between the table body and head to ensure consistent padding
   const padding = (

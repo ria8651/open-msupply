@@ -166,6 +166,7 @@ export const useBaseMaterialTable = <T extends MRT_RowData>({
     isMobile,
     onSaveAsGlobalDefault,
     globalDefaults: resetDefaults,
+    data,
   });
 
   const table = useMaterialReactTable<T>({
