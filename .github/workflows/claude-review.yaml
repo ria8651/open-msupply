@@ -27,7 +27,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           base_branch: develop # Restores .claude, .mcp.json, .claude.json, .gitmodules, .ripgreprc from develop (PR head is untrusted)
           claude_args: |
-            --allowedTools "mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request,mcp__github__get_pull_request_diff,Bash(gh pr view:*),Bash(gh issue view:*)"
+            --allowedTools "mcp__github__pull_request_read,mcp__github__pull_request_review_write"
             --mcp-config '{"mcpServers":{"github":{"command":"docker","args":["run","-i","--rm","-e","GITHUB_PERSONAL_ACCESS_TOKEN","ghcr.io/github/github-mcp-server"],"env":{"GITHUB_PERSONAL_ACCESS_TOKEN":"${{ secrets.GITHUB_TOKEN }}"}}}}' 
           prompt: |
             REPO: ${{ github.repository }}
