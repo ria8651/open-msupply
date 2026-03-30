@@ -1,10 +1,12 @@
 name: Claude Auto Review
 on:
-  pull_request:
-    types: [assigned]
+  issue_comment:
+    types: [created]
 
 jobs:
   review:
+    if: |
+      contains(github.event.comment.body, '@claude-review')
     runs-on: ubuntu-latest
     permissions:
       contents: read
