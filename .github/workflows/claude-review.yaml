@@ -15,6 +15,15 @@ jobs:
       id-token: write
       actions: read
     steps:
+      - name: React with eyes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            --method POST \
+            -f content="eyes"
+    
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
@@ -64,3 +73,18 @@ jobs:
         with:
           name: claude-logs
           path: /home/runner/work/_temp/claude-execution-output.json
+
+      - name: React with failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            --method POST \
+            -f content="confused"
+      
+          gh api \
+            repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+            --method POST \
+            -f body="❌ Claude review failed — check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
