@@ -32,8 +32,7 @@ export const DeliveryTab = ({
 
   const inTransit = (row: InboundLineFragment) => {
     const inTransit = row.purchaseOrderLine?.inTransitNumberOfUnits ?? 0;
-    return data?.status === InvoiceNodeStatus.Delivered ||
-      data?.status === InvoiceNodeStatus.Shipped
+    return data?.status === InvoiceNodeStatus.Delivered
       ? inTransit - row.numberOfPacks * row.packSize
       : inTransit;
   };
