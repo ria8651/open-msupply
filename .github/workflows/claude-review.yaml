@@ -27,7 +27,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           base_branch: develop # Restores .claude, .mcp.json, .claude.json, .gitmodules, .ripgreprc from develop (PR head is untrusted)
           claude_args: |
-            --allowedTools "mcp__github__pull_request_read,mcp__github__pull_request_review_write"
+            --allowedTools "mcp__github__pull_request_read,mcp__github__issue_read,mcp__github__pull_request_review_write,mcp__github__add_comment_to_pending_review"
             --mcp-config '{"mcpServers":{"github":{"command":"docker","args":["run","-i","--rm","-e","GITHUB_PERSONAL_ACCESS_TOKEN","ghcr.io/github/github-mcp-server"],"env":{"GITHUB_PERSONAL_ACCESS_TOKEN":"${{ secrets.GITHUB_TOKEN }}"}}}}' 
           prompt: |
             REPO: ${{ github.repository }}
@@ -39,8 +39,8 @@ jobs:
             Steps:
             1. Use `mcp__github__pull_request_read` with method `get_diff` to read the diff
             2. Use `mcp__github__pull_request_review_write` with method `create_pending` to open a pending review
-            3. For each file-specific finding, use `mcp__github__pull_request_review_write` with method `add_comment`
-               including the file path, line number, and comment body
+            3. For each file-specific finding, use `mcp__github__add_comment_to_pending_review`
+               with owner, repo, pullNumber, path, line, side ("RIGHT"), subjectType ("LINE"), and body
             4. Use `mcp__github__pull_request_review_write` to submit with:
                - event: "REQUEST_CHANGES" if any must fix severity findings exist
                - event: "COMMENT" if only should fix/nit findings
@@ -54,6 +54,9 @@ jobs:
             - 🔴 **Must fix** — bugs, security issues, data loss risks
             - 🟡 **Should fix** — code quality, consistency, maintainability
             - 🟢 **Nit** — style, naming, minor suggestions
+
+            If you run into a critial permission issue or other error abort the review and simply post a comment on the PR detailing
+            what went wrong, what permission you need and why you need it.
 
       - name: Upload Claude logs
         if: always()
