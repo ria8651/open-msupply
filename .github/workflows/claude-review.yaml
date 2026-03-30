@@ -37,11 +37,11 @@ jobs:
             Note: The PR branch is already checked out in the current working directory.
 
             Steps:
-            1. Use `mcp__github__get_pull_request_diff` to read the diff
-            2. Use `mcp__github__create_pending_pull_request_review` to open a pending review
-            3. For each file-specific finding, use `mcp__github__add_pull_request_review_comment_to_pending_review`
-               with the file path, line number, and comment body
-            4. Use `mcp__github__submit_pending_pull_request_review` to submit with:
+            1. Use `mcp__github__pull_request_read` with method `get_diff` to read the diff
+            2. Use `mcp__github__pull_request_review_write` with method `create_pending` to open a pending review
+            3. For each file-specific finding, use `mcp__github__pull_request_review_write` with method `add_comment`
+               including the file path, line number, and comment body
+            4. Use `mcp__github__pull_request_review_write` to submit with:
                - event: "REQUEST_CHANGES" if any must fix severity findings exist
                - event: "COMMENT" if only should fix/nit findings
                - body: a summary of all findings grouped by severity
