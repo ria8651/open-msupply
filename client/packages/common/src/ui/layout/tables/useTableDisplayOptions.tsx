@@ -70,6 +70,9 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
   muiTableBodyRowProps?: MRT_TableOptions<T>['muiTableBodyRowProps'];
 }): Partial<MRT_TableOptions<T>> => {
   const t = useTranslation();
+  // Roving tabindex: track which row currently "owns" tabIndex=0 so Tab
+  // enters/exits the table at a single point rather than cycling every row.
+  const [focusedRowId, setFocusedRowId] = React.useState<string | null>(null);
 
   // shared between the table body and head to ensure consistent padding
   const padding = (
@@ -263,22 +266,46 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
         },
         ...(onRowClick
           ? {
-              tabIndex: 0,
+              // Roving tabindex: only the focused row (or the first row as
+              // entry point) has tabIndex=0; all others are -1 so Tab moves
+              // in/out of the table in a single keystroke.
+              tabIndex:
+                focusedRowId === null
+                  ? row.index === 0
+                    ? 0
+                    : -1
+                  : focusedRowId === row.id
+                    ? 0
+                    : -1,
+              onFocus: () => setFocusedRowId(row.id),
               onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
                 // Only handle keyboard navigation when focus is directly on the
                 // row itself, not on an interactive child element (e.g. inputs)
                 if (e.target !== e.currentTarget) return;
                 if (e.key === 'ArrowDown') {
                   e.preventDefault();
-                  (
-                    e.currentTarget.nextElementSibling as HTMLElement
-                  )?.focus();
+                  // Walk forward to find the next focusable TR sibling,
+                  // skipping any non-TR elements (e.g. sub-row detail panels).
+                  let next = e.currentTarget.nextElementSibling;
+                  while (
+                    next &&
+                    !(next instanceof HTMLElement && next.tagName === 'TR')
+                  ) {
+                    next = next.nextElementSibling;
+                  }
+                  if (next instanceof HTMLElement) next.focus();
                 } else if (e.key === 'ArrowUp') {
                   e.preventDefault();
-                  (
-                    e.currentTarget.previousElementSibling as HTMLElement
-                  )?.focus();
-                } else if (e.key === 'Enter') {
+                  let prev = e.currentTarget.previousElementSibling;
+                  while (
+                    prev &&
+                    !(prev instanceof HTMLElement && prev.tagName === 'TR')
+                  ) {
+                    prev = prev.previousElementSibling;
+                  }
+                  if (prev instanceof HTMLElement) prev.focus();
+                } else if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
                   onRowClick(row.original, false);
                 }
               },
