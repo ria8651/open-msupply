@@ -19,28 +19,13 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          base_branch: develop
-          track_progress: true
-          prompt: |
-
-            Collect ALL inline comments first, then submit them in a single review using
-            mcp__github__create_pull_request_review with event type "COMMENT".
-            Do NOT post inline comments one by one as you find them.
-            Only post GitHub comments - don't submit review text as messages.
-
-          claude_args: |
-            --allowedTools "mcp__github__create_pull_request_review,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
-            --model claude-sonnet-4-6
-
       - name: Claude Code Review
         id: claude_review
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          base_branch: develop # Restores .claude, .mcp.json, .claude.json, .gitmodules, .ripgreprc from develop (PR head is untrusted)
           claude_args: |
             --allowedTools "mcp__github__create_pending_pull_request_review,mcp__github__add_pull_request_review_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request,mcp__github__get_pull_request_diff,Bash(gh pr view:*),Bash(gh issue view:*)"
             --mcp-config '{"mcpServers":{"github":{"command":"docker","args":["run","-i","--rm","-e","GITHUB_PERSONAL_ACCESS_TOKEN","ghcr.io/github/github-mcp-server"],"env":{"GITHUB_PERSONAL_ACCESS_TOKEN":"${{ secrets.GITHUB_TOKEN }}"}}}}' 
