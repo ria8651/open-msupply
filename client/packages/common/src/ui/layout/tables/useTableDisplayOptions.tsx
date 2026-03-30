@@ -261,6 +261,29 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
           );
           if (onRowClick) onRowClick(row.original, isCtrlClick);
         },
+        ...(onRowClick
+          ? {
+              tabIndex: 0,
+              onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+                // Only handle keyboard navigation when focus is directly on the
+                // row itself, not on an interactive child element (e.g. inputs)
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  (
+                    e.currentTarget.nextElementSibling as HTMLElement
+                  )?.focus();
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  (
+                    e.currentTarget.previousElementSibling as HTMLElement
+                  )?.focus();
+                } else if (e.key === 'Enter') {
+                  onRowClick(row.original, false);
+                }
+              },
+            }
+          : {}),
         sx: {
           backgroundColor: 'inherit',
           minHeight: table.getState().density === 'compact' ? '32px' : '40px',
@@ -275,6 +298,11 @@ export const useTableDisplayOptions = <T extends MRT_RowData>({
           },
           fontStyle: row.getCanExpand() ? 'italic' : 'normal',
           cursor: onRowClick ? 'pointer' : 'default',
+          // Show a visible focus ring when navigating rows with keyboard
+          '&:focus-visible': {
+            outline: theme => `2px solid ${theme.palette.primary.main}`,
+            outlineOffset: '-2px',
+          },
         },
       };
       return {
