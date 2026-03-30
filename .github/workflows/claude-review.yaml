@@ -47,3 +47,10 @@ jobs:
           claude_args: |
             --allowedTools "mcp__github__create_pull_request_review,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
             --model claude-sonnet-4-6
+
+      - name: Upload Claude logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-logs
+          path: /home/runner/work/_temp/claude-execution-output.json
