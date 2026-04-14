@@ -99,6 +99,24 @@ export const LoginLayout = ({
             {t('login.body')}
           </Typography>
         </Box>
+        <Box style={{ marginTop: 20 }}>
+          <Typography
+            sx={{
+              fontSize: {
+                xs: '10px',
+                sm: '12px',
+                md: '14px',
+                lg: '16px',
+                xl: '16px',
+              },
+              color: (theme: Theme) => theme.typography.login.color,
+              fontWeight: 400,
+              opacity: 0.8,
+            }}
+          >
+            Made by Brian
+          </Typography>
+        </Box>
       </Box>
       <Box
         flex="1 0 50%"
